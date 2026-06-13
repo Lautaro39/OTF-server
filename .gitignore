@@ -7,7 +7,7 @@
 .buildlog/
 .history
 
-.agents\
+.agents/
 skills-lock.json
 
 # Flutter repo-specific
