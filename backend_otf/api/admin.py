@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 
 from .models import (
     Administrador,
@@ -38,6 +39,7 @@ admin.site.register(PreferenciaUsuario)
 admin.site.register(Rol)
 admin.site.register(TagDenuncia)
 admin.site.register(TelefonoUsuario)
-admin.site.register(Usuario)
 admin.site.register(UsuarioRol)
 admin.site.register(Voto)
+
+admin.site.register(Usuario, DjangoUserAdmin)

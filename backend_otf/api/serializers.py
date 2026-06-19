@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from django.contrib.auth import authenticate
 
 from .models import (
     Administrador,
@@ -23,6 +24,115 @@ from .models import (
 )
 
 # ---------------------------------------------------------------------------
+# Auth — serializers para el frontend Flutter de One-Trough-Five
+# ---------------------------------------------------------------------------
+
+
+class LoginSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    password = serializers.CharField(style={'input_type': 'password'})
+
+    def validate(self, attrs):
+        email = attrs.get('email')
+        password = attrs.get('password')
+        user = authenticate(self.context.get('request'), email=email, password=password)
+        if user is None:
+            raise serializers.ValidationError('Credenciales inválidas.')
+        if not user.is_active:
+            raise serializers.ValidationError('Cuenta desactivada.')
+        attrs['user'] = user
+        return attrs
+
+
+class RegisterSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(write_only=True, max_length=150)
+    lastname = serializers.CharField(write_only=True, max_length=150, required=False, allow_blank=True)
+    phone = serializers.CharField(write_only=True, max_length=50, required=False, allow_blank=True)
+    dni = serializers.CharField(write_only=True, max_length=50, required=False, allow_blank=True)
+    password = serializers.CharField(write_only=True, style={'input_type': 'password'})
+
+    class Meta:
+        model = Usuario
+        fields = ['email', 'password', 'name', 'lastname', 'phone', 'dni']
+
+    def create(self, validated_data):
+        name = validated_data.pop('name')
+        lastname = validated_data.pop('lastname', '')
+        phone = validated_data.pop('phone', '')
+        dni = validated_data.pop('dni', '')
+        password = validated_data.pop('password')
+        email = validated_data.get('email')
+
+        username = email.split('@')[0]
+        user = Usuario.objects.create_user(
+            username=username,
+            email=email,
+            first_name=name,
+            last_name=lastname,
+            password=password,
+        )
+        InfoUsuario.objects.create(
+            id_usuario=user,
+            dni=dni or None,
+            telefono=phone or None,
+        )
+        return user
+
+
+class UserResponseSerializer(serializers.Serializer):
+    """Formato de usuario que espera el frontend Flutter."""
+    id = serializers.IntegerField(source='id_usuario')
+    name = serializers.CharField(source='first_name')
+    lastname = serializers.CharField(source='last_name')
+    email = serializers.EmailField()
+    phone = serializers.SerializerMethodField()
+    dni = serializers.SerializerMethodField()
+    image = serializers.SerializerMethodField()
+
+    def get_phone(self, obj):
+        try:
+            return obj.infousuario.telefono
+        except InfoUsuario.DoesNotExist:
+            return None
+
+    def get_dni(self, obj):
+        try:
+            return obj.infousuario.dni
+        except InfoUsuario.DoesNotExist:
+            return None
+
+    def get_image(self, obj):
+        return None
+
+
+class ProfilePutSerializer(serializers.Serializer):
+    """Actualización de perfil vía multipart (PUT /auth/upload/<id>/)."""
+    name = serializers.CharField(max_length=150, required=False)
+    lastname = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    phone = serializers.CharField(max_length=50, required=False, allow_blank=True)
+    image = serializers.FileField(required=False)
+
+    def update(self, instance, validated_data):
+        name = validated_data.get('name')
+        lastname = validated_data.get('lastname')
+        phone = validated_data.get('phone')
+        # image se ignora (no hay campo de imagen todavía)
+
+        if name is not None:
+            instance.first_name = name
+        if lastname is not None:
+            instance.last_name = lastname
+        instance.save()
+
+        if phone is not None:
+            InfoUsuario.objects.update_or_create(
+                id_usuario=instance,
+                defaults={'telefono': phone},
+            )
+
+        return instance
+
+# ---------------------------------------------------------------------------
 # Usuarios, roles y administración
 # ---------------------------------------------------------------------------
 
@@ -32,14 +142,17 @@ class UsuarioSerializer(serializers.ModelSerializer):
         model = Usuario
         fields = [
             'id_usuario',
-            'nombre_usuario',
-            'contra_encriptada',
-            'fecha_alta',
-            'activo',
+            'username',
+            'email',
+            'first_name',
+            'last_name',
+            'password',
+            'date_joined',
+            'is_active',
         ]
         extra_kwargs = {
-            'contra_encriptada': {'write_only': True},
-            'fecha_alta': {'read_only': True},
+            'password': {'write_only': True},
+            'date_joined': {'read_only': True},
         }
 
 
@@ -48,7 +161,6 @@ class InfoUsuarioSerializer(serializers.ModelSerializer):
         model = InfoUsuario
         fields = [
             'id_usuario',
-            'email',
             'domicilio',
             'dni',
             'telefono',
@@ -98,7 +210,7 @@ class EstadoSerializer(serializers.ModelSerializer):
 class DenunciaListSerializer(serializers.ModelSerializer):
     """Denuncia en listados: incluye labels de relaciones en lugar de solo IDs."""
 
-    nombre_usuario = serializers.CharField(source='id_usuario.nombre_usuario', read_only=True)
+    nombre_usuario = serializers.CharField(source='id_usuario.username', read_only=True)
     categoria = serializers.CharField(source='id_categoria.nombre', read_only=True)
     estado = serializers.CharField(source='estado_actual.nombre_estado', read_only=True)
 

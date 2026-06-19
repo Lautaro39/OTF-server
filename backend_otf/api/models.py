@@ -1,33 +1,45 @@
+from django.contrib.auth.models import AbstractUser
 from django.db import models
 
 # ---------------------------------------------------------------------------
 # Usuarios, roles y administración
 # ---------------------------------------------------------------------------
 
-class Usuario(models.Model):
-    """Usuario principal del sistema."""
+class Usuario(AbstractUser):
+    """Usuario principal del sistema (extiende el modelo de autenticación de Django)."""
     id_usuario = models.BigAutoField(primary_key=True, db_column='IdUsuario')
-    nombre_usuario = models.CharField(max_length=100, unique=True, db_column='NombreUsuario')
-    contra_encriptada = models.CharField(max_length=255, db_column='ContraEncriptada')
-    fecha_alta = models.DateTimeField(auto_now_add=True, db_column='FechaAlta')
-    activo = models.BooleanField(default=True, db_column='Activo')
+    # Campos heredados de AbstractUser con db_column para compatibilidad con la BD existente
+    username = models.CharField(max_length=150, unique=True, db_column='NombreUsuario')
+    password = models.CharField(max_length=255, db_column='ContraEncriptada')
+    email = models.EmailField(unique=True)
+    first_name = models.CharField(max_length=150, blank=True)
+    last_name = models.CharField(max_length=150, blank=True)
+    is_active = models.BooleanField(default=True, db_column='Activo')
+    date_joined = models.DateTimeField(auto_now_add=True, db_column='FechaAlta')
+    # is_staff, is_superuser, last_login, groups, user_permissions heredados de
+    # AbstractUser / PermissionsMixin sin cambios
+
+    USERNAME_FIELD = 'email'
+    REQUIRED_FIELDS = ['username']
 
     class Meta:
         db_table = 'Usuarios'
         verbose_name = 'usuario'
         verbose_name_plural = 'usuarios'
-        ordering = ['nombre_usuario']
+        ordering = ['username']
 
     def __str__(self):
-        return self.nombre_usuario
+        return self.email
 
 
 class InfoUsuario(models.Model):
-    """Información extendida del usuario (1:1 con Usuario)."""
+    """Información extendida del usuario (1:1 con Usuario).
+    
+    El campo email fue movido a Usuario para integrarlo con el sistema
+    de autenticación de Django (email = campo de login)."""
     id_usuario = models.OneToOneField(
         Usuario, on_delete=models.CASCADE, primary_key=True, db_column='IdUsuario'
     )
-    email = models.EmailField(max_length=255, unique=True, db_column='Email')
     domicilio = models.CharField(max_length=255, blank=True, null=True, db_column='Domicilio')
     dni = models.CharField(max_length=50, unique=True, blank=True, null=True, db_column='DNI')
     # Teléfono de contacto principal. Para múltiples teléfonos por usuario
