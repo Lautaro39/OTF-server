@@ -1,26 +1,14 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 
-# ---------------------------------------------------------------------------
-# Usuarios, roles y administración
-# ---------------------------------------------------------------------------
 
 class Usuario(AbstractUser):
-    """Usuario principal del sistema (extiende el modelo de autenticación de Django)."""
-    id_usuario = models.BigAutoField(primary_key=True, db_column='IdUsuario')
-    # Campos heredados de AbstractUser con db_column para compatibilidad con la BD existente
-    username = models.CharField(max_length=150, unique=True, db_column='NombreUsuario')
-    password = models.CharField(max_length=255, db_column='ContraEncriptada')
-    email = models.EmailField(unique=True)
-    first_name = models.CharField(max_length=150, blank=True)
-    last_name = models.CharField(max_length=150, blank=True)
-    is_active = models.BooleanField(default=True, db_column='Activo')
-    date_joined = models.DateTimeField(auto_now_add=True, db_column='FechaAlta')
-    # is_staff, is_superuser, last_login, groups, user_permissions heredados de
-    # AbstractUser / PermissionsMixin sin cambios
-
-    USERNAME_FIELD = 'email'
-    REQUIRED_FIELDS = ['username']
+    """
+    Usuario del sistema. Extiende AbstractUser de Django.
+    USERNAME_FIELD = 'username' (el DNI del usuario).
+    Login: username (DNI) + password.
+    """
+    imagen = models.ImageField(upload_to='profiles/', blank=True, null=True, db_column='Imagen')
 
     class Meta:
         db_table = 'Usuarios'
@@ -28,22 +16,20 @@ class Usuario(AbstractUser):
         verbose_name_plural = 'usuarios'
         ordering = ['username']
 
+    USERNAME_FIELD = 'username'
+    REQUIRED_FIELDS = ['first_name', 'last_name']
+
     def __str__(self):
-        return self.email
+        return self.username
 
 
 class InfoUsuario(models.Model):
-    """Información extendida del usuario (1:1 con Usuario).
-    
-    El campo email fue movido a Usuario para integrarlo con el sistema
-    de autenticación de Django (email = campo de login)."""
+    """Informacion extendida del usuario (1:1 con Usuario)."""
     id_usuario = models.OneToOneField(
         Usuario, on_delete=models.CASCADE, primary_key=True, db_column='IdUsuario'
     )
     domicilio = models.CharField(max_length=255, blank=True, null=True, db_column='Domicilio')
     dni = models.CharField(max_length=50, unique=True, blank=True, null=True, db_column='DNI')
-    # Teléfono de contacto principal. Para múltiples teléfonos por usuario
-    # existe la tabla TelefonosUsuario (ver modelo TelefonoUsuario).
     telefono = models.CharField(max_length=50, blank=True, null=True, db_column='Telefono')
 
     class Meta:
@@ -56,7 +42,7 @@ class InfoUsuario(models.Model):
 
 
 class Administrador(models.Model):
-    """Usuario con privilegios de administración."""
+    """Usuario con privilegios de administracion."""
     id_usuario = models.OneToOneField(
         Usuario, on_delete=models.CASCADE, primary_key=True, db_column='IdUsuario'
     )
@@ -74,7 +60,7 @@ class Administrador(models.Model):
 
 
 class Rol(models.Model):
-    """Roles asignables a usuarios (ej. editor, revisor, superadmin)."""
+    """Roles asignables a usuarios."""
     id_rol = models.AutoField(primary_key=True, db_column='IdRol')
     nombre_rol = models.CharField(max_length=100, unique=True, db_column='NombreRol')
 
@@ -88,12 +74,7 @@ class Rol(models.Model):
 
 
 class UsuarioRol(models.Model):
-    """
-    Relación muchos-a-muchos entre Usuario y Rol.
-
-    Django no soporta claves primarias compuestas nativamente, por lo que se
-    usa un UniqueConstraint en (IdUsuario, IdRol) en lugar de una PK compuesta.
-    """
+    """Relacion muchos-a-muchos entre Usuario y Rol."""
     id_usuario = models.ForeignKey(Usuario, on_delete=models.CASCADE, db_column='IdUsuario')
     id_rol = models.ForeignKey(Rol, on_delete=models.CASCADE, db_column='IdRol')
 
@@ -109,20 +90,16 @@ class UsuarioRol(models.Model):
         return f'{self.id_usuario} -> {self.id_rol}'
 
 
-# ---------------------------------------------------------------------------
-# Denuncias, estados y categorías
-# ---------------------------------------------------------------------------
-
 class Categoria(models.Model):
-    """Categoría a la que pertenece una denuncia."""
+    """Categoria a la que pertenece una denuncia."""
     id_categoria = models.AutoField(primary_key=True, db_column='IdCategoria')
     nombre = models.CharField(max_length=150, unique=True, db_column='Nombre')
     descripcion = models.TextField(blank=True, null=True, db_column='Descripcion')
 
     class Meta:
         db_table = 'Categorias'
-        verbose_name = 'categoría'
-        verbose_name_plural = 'categorías'
+        verbose_name = 'categoria'
+        verbose_name_plural = 'categorias'
         ordering = ['nombre']
 
     def __str__(self):
@@ -130,7 +107,7 @@ class Categoria(models.Model):
 
 
 class Estado(models.Model):
-    """Catálogo de estados por los que puede pasar una denuncia."""
+    """Catalogo de estados por los que puede pasar una denuncia."""
     id_estado = models.AutoField(primary_key=True, db_column='IdEstado')
     nombre_estado = models.CharField(max_length=100, unique=True, db_column='NombreEstado')
     descripcion = models.TextField(blank=True, null=True, db_column='Descripcion')
@@ -146,22 +123,18 @@ class Estado(models.Model):
 
 
 class Denuncia(models.Model):
-    """
-    Denuncia presentada por un usuario.
-
-    Se utiliza SET_NULL en las FK a Categoria y Estado (en lugar de NO ACTION)
-    para evitar errores al eliminar registros referenciados sin perder la
-    denuncia. En esos casos la columna queda en NULL.
-    """
+    """Denuncia presentada por un usuario."""
     id_denuncia = models.BigAutoField(primary_key=True, db_column='IdDenuncia')
     id_usuario = models.ForeignKey(Usuario, on_delete=models.CASCADE, db_column='IdUsuario')
     id_categoria = models.ForeignKey(
         Categoria, on_delete=models.SET_NULL, blank=True, null=True, db_column='IdCategoria'
     )
-    titulo = models.CharField(max_length=255, blank=True, null=True, db_column='Titulo')
     descripcion = models.TextField(blank=True, null=True, db_column='Descripcion')
+    latitud = models.DecimalField(max_digits=9, decimal_places=6, blank=True, null=True, db_column='Latitud')
+    longitud = models.DecimalField(max_digits=9, decimal_places=6, blank=True, null=True, db_column='Longitud')
+    direccion = models.CharField(max_length=512, blank=True, null=True, db_column='Direccion')
+    imagen = models.ImageField(upload_to='denuncias/%Y/%m/', blank=True, null=True, db_column='Imagen')
     fecha_creacion = models.DateTimeField(auto_now_add=True, db_column='FechaCreacion')
-    # Estado en el que se encuentra la denuncia actualmente.
     estado_actual = models.ForeignKey(
         Estado,
         on_delete=models.SET_NULL,
@@ -178,19 +151,14 @@ class Denuncia(models.Model):
         ordering = ['-fecha_creacion']
 
     def __str__(self):
-        return self.titulo or f'Denuncia #{self.id_denuncia}'
+        return f'Denuncia #{self.id_denuncia}'
 
 
 class EstadoDenuncia(models.Model):
-    """
-    Historial de cambios de estado de una denuncia.
-
-    Cada fila registra cuándo un administrador cambió el estado de una denuncia.
-    """
+    """Historial de cambios de estado de una denuncia."""
     id_estado_denuncia = models.BigAutoField(primary_key=True, db_column='IdEstadoDenuncia')
     id_denuncia = models.ForeignKey(Denuncia, on_delete=models.CASCADE, db_column='IdDenuncia')
     id_estado = models.ForeignKey(Estado, on_delete=models.CASCADE, db_column='IdEstado')
-    # Si el admin es eliminado, el historial conserva la referencia en NULL.
     id_admin = models.ForeignKey(
         Administrador, on_delete=models.SET_NULL, blank=True, null=True, db_column='IdAdmin'
     )
@@ -204,16 +172,11 @@ class EstadoDenuncia(models.Model):
         ordering = ['-fecha_cambio']
 
     def __str__(self):
-        return f'Denuncia #{self.id_denuncia_id} → {self.id_estado_id}'
+        return f'Denuncia #{self.id_denuncia_id} -> {self.id_estado}'
 
-
-# ---------------------------------------------------------------------------
-# Votos
-# ---------------------------------------------------------------------------
 
 class Voto(models.Model):
-    """Voto emitido por un usuario sobre una denuncia. Un mismo usuario solo
-    puede votar una vez por denuncia (UniqueConstraint)."""
+    """Voto emitido por un usuario sobre una denuncia."""
     id_voto = models.BigAutoField(primary_key=True, db_column='IdVoto')
     id_usuario = models.ForeignKey(Usuario, on_delete=models.CASCADE, db_column='IdUsuario')
     id_denuncia = models.ForeignKey(Denuncia, on_delete=models.CASCADE, db_column='IdDenuncia')
@@ -232,10 +195,6 @@ class Voto(models.Model):
     def __str__(self):
         return f'Voto de {self.id_usuario_id} en denuncia #{self.id_denuncia_id}'
 
-
-# ---------------------------------------------------------------------------
-# Archivos y carpetas
-# ---------------------------------------------------------------------------
 
 class CarpetaArchivo(models.Model):
     """Carpeta contenedora de archivos adjuntos a una denuncia."""
@@ -272,14 +231,9 @@ class Archivo(models.Model):
         return self.nombre_archivo or f'Archivo #{self.id_archivo}'
 
 
-# ---------------------------------------------------------------------------
-# Logs, auditoría y notificaciones
-# ---------------------------------------------------------------------------
-
 class LogAcceso(models.Model):
-    """Registro de accesos al sistema (éxito/fallo de login, IP, user-agent)."""
+    """Registro de accesos al sistema."""
     id_log = models.BigAutoField(primary_key=True, db_column='IdLog')
-    # SET_NULL conserva el log incluso si el usuario es eliminado.
     id_usuario = models.ForeignKey(
         Usuario, on_delete=models.SET_NULL, blank=True, null=True, db_column='IdUsuario'
     )
@@ -299,11 +253,10 @@ class LogAcceso(models.Model):
 
 
 class AuditCambio(models.Model):
-    """Registro de auditoría para cambios sobre cualquier tabla del sistema."""
+    """Registro de auditoria para cambios sobre cualquier tabla del sistema."""
     id_audit = models.BigAutoField(primary_key=True, db_column='IdAudit')
     tabla = models.CharField(max_length=100, blank=True, null=True, db_column='Tabla')
     id_registro = models.CharField(max_length=100, blank=True, null=True, db_column='IdRegistro')
-    # SET_NULL conserva la auditoría incluso si el usuario es eliminado.
     id_usuario = models.ForeignKey(
         Usuario, on_delete=models.SET_NULL, blank=True, null=True, db_column='IdUsuario'
     )
@@ -314,16 +267,16 @@ class AuditCambio(models.Model):
 
     class Meta:
         db_table = 'AuditCambios'
-        verbose_name = 'registro de auditoría'
-        verbose_name_plural = 'registros de auditoría'
+        verbose_name = 'registro de auditoria'
+        verbose_name_plural = 'registros de auditoria'
         ordering = ['-fecha_hora']
 
     def __str__(self):
-        return f'Audit #{self.id_audit} — {self.tabla}.{self.operacion}'
+        return f'Audit #{self.id_audit} -- {self.tabla}.{self.operacion}'
 
 
 class Notificacion(models.Model):
-    """Notificación enviada a un usuario (push, in-app, etc.)."""
+    """Notificacion enviada a un usuario."""
     id_notificacion = models.BigAutoField(primary_key=True, db_column='IdNotificacion')
     id_usuario = models.ForeignKey(Usuario, on_delete=models.CASCADE, db_column='IdUsuario')
     tipo = models.CharField(max_length=50, blank=True, null=True, db_column='Tipo')
@@ -333,7 +286,7 @@ class Notificacion(models.Model):
 
     class Meta:
         db_table = 'Notificaciones'
-        verbose_name = 'notificación'
+        verbose_name = 'notificacion'
         verbose_name_plural = 'notificaciones'
         ordering = ['-fecha_envio']
 
@@ -341,17 +294,8 @@ class Notificacion(models.Model):
         return f'Notif #{self.id_notificacion} para {self.id_usuario_id}'
 
 
-# ---------------------------------------------------------------------------
-# Tablas auxiliares
-# ---------------------------------------------------------------------------
-
 class TelefonoUsuario(models.Model):
-    """
-    Teléfonos adicionales de un usuario (múltiples por usuario).
-
-    El campo InfoUsuario.telefono almacena el número de contacto principal;
-    esta tabla permite registrar teléfonos secundarios con tipo y prioridad.
-    """
+    """Telefonos adicionales de un usuario."""
     id_telefono = models.BigAutoField(primary_key=True, db_column='IdTelefono')
     id_usuario = models.ForeignKey(Usuario, on_delete=models.CASCADE, db_column='IdUsuario')
     telefono = models.CharField(max_length=50, blank=True, null=True, db_column='Telefono')
@@ -360,15 +304,15 @@ class TelefonoUsuario(models.Model):
 
     class Meta:
         db_table = 'TelefonosUsuario'
-        verbose_name = 'teléfono de usuario'
-        verbose_name_plural = 'teléfonos de usuarios'
+        verbose_name = 'telefono de usuario'
+        verbose_name_plural = 'telefonos de usuarios'
 
     def __str__(self):
         return f'{self.tipo}: {self.telefono} ({self.id_usuario_id})'
 
 
 class TagDenuncia(models.Model):
-    """Etiquetas libres para clasificar denuncias (ej. urgente, revisado)."""
+    """Etiquetas libres para clasificar denuncias."""
     id_tag = models.AutoField(primary_key=True, db_column='IdTag')
     nombre_tag = models.CharField(max_length=100, unique=True, db_column='NombreTag')
 
@@ -383,12 +327,7 @@ class TagDenuncia(models.Model):
 
 
 class DenunciaTag(models.Model):
-    """
-    Relación muchos-a-muchos entre Denuncia y TagDenuncia.
-
-    Al igual que UsuarioRol, Django no permite PK compuesta; se usa
-    UniqueConstraint en (IdDenuncia, IdTag).
-    """
+    """Relacion muchos-a-muchos entre Denuncia y TagDenuncia."""
     id_denuncia = models.ForeignKey(Denuncia, on_delete=models.CASCADE, db_column='IdDenuncia')
     id_tag = models.ForeignKey(TagDenuncia, on_delete=models.CASCADE, db_column='IdTag')
 
@@ -401,11 +340,11 @@ class DenunciaTag(models.Model):
         ]
 
     def __str__(self):
-        return f'Denuncia #{self.id_denuncia_id} + {self.id_tag_id}'
+        return f'Denuncia #{self.id_denuncia_id} + {self.id_tag}'
 
 
 class PreferenciaUsuario(models.Model):
-    """Preferencias de configuración por usuario (idioma, notificaciones, etc.)."""
+    """Preferencias de configuracion por usuario."""
     id_usuario = models.OneToOneField(
         Usuario, on_delete=models.CASCADE, primary_key=True, db_column='IdUsuario'
     )

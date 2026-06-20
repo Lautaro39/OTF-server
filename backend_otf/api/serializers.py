@@ -1,5 +1,4 @@
 from rest_framework import serializers
-from django.contrib.auth import authenticate
 
 from .models import (
     Administrador,
@@ -23,71 +22,23 @@ from .models import (
     Voto,
 )
 
-# ---------------------------------------------------------------------------
-# Auth — serializers para el frontend Flutter de One-Trough-Five
-# ---------------------------------------------------------------------------
+
+# =========================================================================
+# Auth serializers (Flutter contract)
+# =========================================================================
 
 
-class LoginSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    password = serializers.CharField(style={'input_type': 'password'})
-
-    def validate(self, attrs):
-        email = attrs.get('email')
-        password = attrs.get('password')
-        user = authenticate(self.context.get('request'), email=email, password=password)
-        if user is None:
-            raise serializers.ValidationError('Credenciales inválidas.')
-        if not user.is_active:
-            raise serializers.ValidationError('Cuenta desactivada.')
-        attrs['user'] = user
-        return attrs
-
-
-class RegisterSerializer(serializers.ModelSerializer):
-    name = serializers.CharField(write_only=True, max_length=150)
-    lastname = serializers.CharField(write_only=True, max_length=150, required=False, allow_blank=True)
-    phone = serializers.CharField(write_only=True, max_length=50, required=False, allow_blank=True)
-    dni = serializers.CharField(write_only=True, max_length=50, required=False, allow_blank=True)
-    password = serializers.CharField(write_only=True, style={'input_type': 'password'})
-
-    class Meta:
-        model = Usuario
-        fields = ['email', 'password', 'name', 'lastname', 'phone', 'dni']
-
-    def create(self, validated_data):
-        name = validated_data.pop('name')
-        lastname = validated_data.pop('lastname', '')
-        phone = validated_data.pop('phone', '')
-        dni = validated_data.pop('dni', '')
-        password = validated_data.pop('password')
-        email = validated_data.get('email')
-
-        username = email.split('@')[0]
-        user = Usuario.objects.create_user(
-            username=username,
-            email=email,
-            first_name=name,
-            last_name=lastname,
-            password=password,
-        )
-        InfoUsuario.objects.create(
-            id_usuario=user,
-            dni=dni or None,
-            telefono=phone or None,
-        )
-        return user
-
-
-class UserResponseSerializer(serializers.Serializer):
-    """Formato de usuario que espera el frontend Flutter."""
-    id = serializers.IntegerField(source='id_usuario')
+class UserResponseSerializer(serializers.ModelSerializer):
+    """Flutter UserModel contract: flat shape, no roles, no email."""
     name = serializers.CharField(source='first_name')
     lastname = serializers.CharField(source='last_name')
-    email = serializers.EmailField()
     phone = serializers.SerializerMethodField()
     dni = serializers.SerializerMethodField()
     image = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Usuario
+        fields = ['id', 'name', 'lastname', 'phone', 'dni', 'image']
 
     def get_phone(self, obj):
         try:
@@ -102,53 +53,89 @@ class UserResponseSerializer(serializers.Serializer):
             return None
 
     def get_image(self, obj):
+        if obj.imagen:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.imagen.url)
+            return obj.imagen.url
         return None
 
 
-class ProfilePutSerializer(serializers.Serializer):
-    """Actualización de perfil vía multipart (PUT /auth/upload/<id>/)."""
-    name = serializers.CharField(max_length=150, required=False)
-    lastname = serializers.CharField(max_length=150, required=False, allow_blank=True)
-    phone = serializers.CharField(max_length=50, required=False, allow_blank=True)
-    image = serializers.FileField(required=False)
+class LoginSerializer(serializers.Serializer):
+    username = serializers.CharField()
+    password = serializers.CharField(style={'input_type': 'password'})
 
-    def update(self, instance, validated_data):
-        name = validated_data.get('name')
-        lastname = validated_data.get('lastname')
-        phone = validated_data.get('phone')
-        # image se ignora (no hay campo de imagen todavía)
 
-        if name is not None:
-            instance.first_name = name
-        if lastname is not None:
-            instance.last_name = lastname
-        instance.save()
+class RegisterSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=150, source='first_name')
+    lastname = serializers.CharField(max_length=150, source='last_name')
+    username = serializers.CharField(max_length=150)
+    phone = serializers.CharField(max_length=50, allow_blank=True, required=False)
+    password = serializers.CharField(min_length=4, style={'input_type': 'password'})
 
-        if phone is not None:
-            InfoUsuario.objects.update_or_create(
-                id_usuario=instance,
-                defaults={'telefono': phone},
+    def validate_username(self, value):
+        if Usuario.objects.filter(username=value).exists():
+            raise serializers.ValidationError('Ya existe un usuario con ese DNI.')
+        return value
+
+    def create(self, validated_data):
+        from django.db import transaction
+
+        with transaction.atomic():
+            user = Usuario.objects.create_user(
+                username=validated_data['username'],
+                password=validated_data['password'],
+                first_name=validated_data['first_name'],
+                last_name=validated_data['last_name'],
             )
+            InfoUsuario.objects.create(
+                id_usuario=user,
+                dni=validated_data['username'],
+                telefono=validated_data.get('phone', ''),
+            )
+        return user
 
-        return instance
 
-# ---------------------------------------------------------------------------
-# Usuarios, roles y administración
-# ---------------------------------------------------------------------------
+class ProfileUpdateSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=150, source='first_name', required=False)
+    lastname = serializers.CharField(max_length=150, source='last_name', required=False)
+    phone = serializers.CharField(max_length=50, allow_blank=True, required=False)
+    image = serializers.ImageField(required=False)
+
+    def update(self, user, validated_data):
+        if 'first_name' in validated_data:
+            user.first_name = validated_data['first_name']
+        if 'last_name' in validated_data:
+            user.last_name = validated_data['last_name']
+        if 'image' in validated_data:
+            user.imagen = validated_data['image']
+        user.save()
+
+        info, _ = InfoUsuario.objects.get_or_create(id_usuario=user)
+        if 'phone' in validated_data:
+            info.telefono = validated_data['phone']
+            info.save()
+
+        return user
+
+
+# =========================================================================
+# Usuarios, roles y administracion
+# =========================================================================
 
 
 class UsuarioSerializer(serializers.ModelSerializer):
     class Meta:
         model = Usuario
         fields = [
-            'id_usuario',
+            'id',
             'username',
-            'email',
             'first_name',
             'last_name',
-            'password',
-            'date_joined',
+            'email',
             'is_active',
+            'date_joined',
+            'imagen',
         ]
         extra_kwargs = {
             'password': {'write_only': True},
@@ -159,23 +146,13 @@ class UsuarioSerializer(serializers.ModelSerializer):
 class InfoUsuarioSerializer(serializers.ModelSerializer):
     class Meta:
         model = InfoUsuario
-        fields = [
-            'id_usuario',
-            'domicilio',
-            'dni',
-            'telefono',
-        ]
+        fields = ['id_usuario', 'domicilio', 'dni', 'telefono']
 
 
 class AdministradorSerializer(serializers.ModelSerializer):
     class Meta:
         model = Administrador
-        fields = [
-            'id_usuario',
-            'legajo',
-            'fecha_ingreso',
-            'rol_admin',
-        ]
+        fields = ['id_usuario', 'legajo', 'fecha_ingreso', 'rol_admin']
 
 
 class RolSerializer(serializers.ModelSerializer):
@@ -190,9 +167,9 @@ class UsuarioRolSerializer(serializers.ModelSerializer):
         fields = ['id', 'id_usuario', 'id_rol']
 
 
-# ---------------------------------------------------------------------------
-# Denuncias, estados y categorías
-# ---------------------------------------------------------------------------
+# =========================================================================
+# Denuncias, estados y categorias
+# =========================================================================
 
 
 class CategoriaSerializer(serializers.ModelSerializer):
@@ -208,11 +185,12 @@ class EstadoSerializer(serializers.ModelSerializer):
 
 
 class DenunciaListSerializer(serializers.ModelSerializer):
-    """Denuncia en listados: incluye labels de relaciones en lugar de solo IDs."""
+    """Denuncia en listados: labels legibles en lugar de solo IDs."""
 
-    nombre_usuario = serializers.CharField(source='id_usuario.username', read_only=True)
+    nombre_usuario = serializers.CharField(source='id_usuario.first_name', read_only=True)
     categoria = serializers.CharField(source='id_categoria.nombre', read_only=True)
     estado = serializers.CharField(source='estado_actual.nombre_estado', read_only=True)
+    imagen = serializers.SerializerMethodField()
 
     class Meta:
         model = Denuncia
@@ -222,8 +200,11 @@ class DenunciaListSerializer(serializers.ModelSerializer):
             'nombre_usuario',
             'id_categoria',
             'categoria',
-            'titulo',
             'descripcion',
+            'latitud',
+            'longitud',
+            'direccion',
+            'imagen',
             'fecha_creacion',
             'estado_actual',
             'estado',
@@ -232,13 +213,22 @@ class DenunciaListSerializer(serializers.ModelSerializer):
             'fecha_creacion': {'read_only': True},
         }
 
+    def get_imagen(self, obj):
+        if obj.imagen:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.imagen.url)
+            return obj.imagen.url
+        return None
+
 
 class DenunciaDetailSerializer(serializers.ModelSerializer):
-    """Denuncia en detalle: incluye objetos anidados completos."""
+    """Denuncia en detalle: objetos anidados completos."""
 
-    id_usuario = UsuarioSerializer(read_only=True)
+    id_usuario = UserResponseSerializer(read_only=True)
     id_categoria = CategoriaSerializer(read_only=True)
     estado_actual = EstadoSerializer(read_only=True)
+    imagen = serializers.SerializerMethodField()
 
     class Meta:
         model = Denuncia
@@ -246,8 +236,11 @@ class DenunciaDetailSerializer(serializers.ModelSerializer):
             'id_denuncia',
             'id_usuario',
             'id_categoria',
-            'titulo',
             'descripcion',
+            'latitud',
+            'longitud',
+            'direccion',
+            'imagen',
             'fecha_creacion',
             'estado_actual',
         ]
@@ -255,9 +248,17 @@ class DenunciaDetailSerializer(serializers.ModelSerializer):
             'fecha_creacion': {'read_only': True},
         }
 
+    def get_imagen(self, obj):
+        if obj.imagen:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.imagen.url)
+            return obj.imagen.url
+        return None
+
 
 class DenunciaWriteSerializer(serializers.ModelSerializer):
-    """Denuncia para creación y actualización: solo IDs en relaciones."""
+    """Denuncia para creacion y actualizacion: solo IDs en relaciones."""
 
     class Meta:
         model = Denuncia
@@ -265,12 +266,17 @@ class DenunciaWriteSerializer(serializers.ModelSerializer):
             'id_denuncia',
             'id_usuario',
             'id_categoria',
-            'titulo',
             'descripcion',
+            'latitud',
+            'longitud',
+            'direccion',
+            'imagen',
             'estado_actual',
         ]
         extra_kwargs = {
             'id_denuncia': {'read_only': True},
+            'id_usuario': {'read_only': True},
+            'estado_actual': {'read_only': True},
         }
 
 
@@ -290,40 +296,39 @@ class EstadoDenunciaSerializer(serializers.ModelSerializer):
         }
 
 
-# ---------------------------------------------------------------------------
+# =========================================================================
 # Votos
-# ---------------------------------------------------------------------------
+# =========================================================================
 
 
 class VotoSerializer(serializers.ModelSerializer):
+    nombre_usuario = serializers.CharField(source='id_usuario.first_name', read_only=True)
+
     class Meta:
         model = Voto
         fields = [
             'id_voto',
             'id_usuario',
+            'nombre_usuario',
             'id_denuncia',
             'descripcion',
             'fecha',
         ]
         extra_kwargs = {
+            'id_usuario': {'read_only': True},
             'fecha': {'read_only': True},
         }
 
 
-# ---------------------------------------------------------------------------
+# =========================================================================
 # Archivos y carpetas
-# ---------------------------------------------------------------------------
+# =========================================================================
 
 
 class CarpetaArchivoSerializer(serializers.ModelSerializer):
     class Meta:
         model = CarpetaArchivo
-        fields = [
-            'id_carpeta',
-            'id_denuncia',
-            'nombre_carpeta',
-            'fecha_creacion',
-        ]
+        fields = ['id_carpeta', 'id_denuncia', 'nombre_carpeta', 'fecha_creacion']
         extra_kwargs = {
             'fecha_creacion': {'read_only': True},
         }
@@ -346,22 +351,15 @@ class ArchivoSerializer(serializers.ModelSerializer):
         }
 
 
-# ---------------------------------------------------------------------------
-# Logs, auditoría y notificaciones
-# ---------------------------------------------------------------------------
+# =========================================================================
+# Logs, auditoria y notificaciones
+# =========================================================================
 
 
 class LogAccesoSerializer(serializers.ModelSerializer):
     class Meta:
         model = LogAcceso
-        fields = [
-            'id_log',
-            'id_usuario',
-            'fecha_hora',
-            'ip',
-            'user_agent',
-            'resultado',
-        ]
+        fields = ['id_log', 'id_usuario', 'fecha_hora', 'ip', 'user_agent', 'resultado']
         extra_kwargs = {
             'fecha_hora': {'read_only': True},
         }
@@ -388,34 +386,21 @@ class AuditCambioSerializer(serializers.ModelSerializer):
 class NotificacionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notificacion
-        fields = [
-            'id_notificacion',
-            'id_usuario',
-            'tipo',
-            'contenido',
-            'leida',
-            'fecha_envio',
-        ]
+        fields = ['id_notificacion', 'id_usuario', 'tipo', 'contenido', 'leida', 'fecha_envio']
         extra_kwargs = {
             'fecha_envio': {'read_only': True},
         }
 
 
-# ---------------------------------------------------------------------------
+# =========================================================================
 # Tablas auxiliares
-# ---------------------------------------------------------------------------
+# =========================================================================
 
 
 class TelefonoUsuarioSerializer(serializers.ModelSerializer):
     class Meta:
         model = TelefonoUsuario
-        fields = [
-            'id_telefono',
-            'id_usuario',
-            'telefono',
-            'tipo',
-            'principal',
-        ]
+        fields = ['id_telefono', 'id_usuario', 'telefono', 'tipo', 'principal']
 
 
 class TagDenunciaSerializer(serializers.ModelSerializer):
@@ -433,9 +418,4 @@ class DenunciaTagSerializer(serializers.ModelSerializer):
 class PreferenciaUsuarioSerializer(serializers.ModelSerializer):
     class Meta:
         model = PreferenciaUsuario
-        fields = [
-            'id_usuario',
-            'recibir_emails',
-            'idioma',
-            'zona_horaria',
-        ]
+        fields = ['id_usuario', 'recibir_emails', 'idioma', 'zona_horaria']
