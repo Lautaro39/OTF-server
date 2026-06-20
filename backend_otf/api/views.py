@@ -17,6 +17,7 @@ from .models import (
     Voto,
 )
 from .serializers import (
+    ArchivoSerializer,
     CategoriaSerializer,
     DenunciaDetailSerializer,
     DenunciaListSerializer,
@@ -171,15 +172,17 @@ class VotoViewSet(viewsets.ModelViewSet):
 
 class ArchivoViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
+    serializer_class = ArchivoSerializer
 
     def get_queryset(self):
-        return Archivo.objects.select_related('id_carpeta__id_denuncia')
+        qs = Archivo.objects.select_related('id_carpeta__id_denuncia')
+        denuncia_id = self.request.query_params.get('denuncia')
+        if denuncia_id:
+            qs = qs.filter(id_carpeta__id_denuncia_id=denuncia_id)
+        return qs
 
     def perform_create(self, serializer):
-        denuncia_id = self.request.data.get('id_denuncia')
-        if not denuncia_id:
-            raise serializers.ValidationError({'id_denuncia': 'Requerido.'})
-
+        denuncia_id = serializer.validated_data.pop('id_denuncia')
         denuncia = Denuncia.objects.get(id_denuncia=denuncia_id)
         carpeta, _ = CarpetaArchivo.objects.get_or_create(
             id_denuncia=denuncia,
@@ -189,7 +192,7 @@ class ArchivoViewSet(viewsets.ModelViewSet):
 
     def perform_destroy(self, instance):
         denuncia = instance.id_carpeta.id_denuncia
-        if denuncia.id_usuario != self.request.user:
+        if denuncia.id_usuario_id != self.request.user.id:
             raise PermissionError()
         instance.delete()
 

@@ -220,7 +220,18 @@ class Archivo(models.Model):
     ruta = models.CharField(max_length=1024, blank=True, null=True, db_column='Ruta')
     tipo_mime = models.CharField(max_length=100, blank=True, null=True, db_column='TipoMime')
     tamano_bytes = models.BigIntegerField(blank=True, null=True, db_column='TamanoBytes')
+    archivo = models.FileField(upload_to='archivos/%Y/%m/', blank=True, null=True, db_column='Archivo')
     fecha_subida = models.DateTimeField(auto_now_add=True, db_column='FechaSubida')
+
+    def save(self, *args, **kwargs):
+        if self.archivo:
+            if not self.ruta:
+                self.ruta = self.archivo.name
+            if not self.nombre_archivo:
+                self.nombre_archivo = self.archivo.name
+            if self.tamano_bytes is None and self.archivo.size:
+                self.tamano_bytes = self.archivo.size
+        super().save(*args, **kwargs)
 
     class Meta:
         db_table = 'Archivos'

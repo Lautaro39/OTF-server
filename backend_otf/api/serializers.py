@@ -335,18 +335,27 @@ class CarpetaArchivoSerializer(serializers.ModelSerializer):
 
 
 class ArchivoSerializer(serializers.ModelSerializer):
+    id_denuncia = serializers.IntegerField(write_only=True)
+
     class Meta:
         model = Archivo
         fields = [
             'id_archivo',
             'id_carpeta',
+            'id_denuncia',
             'nombre_archivo',
             'ruta',
             'tipo_mime',
             'tamano_bytes',
+            'archivo',
             'fecha_subida',
         ]
         extra_kwargs = {
+            'id_carpeta': {'read_only': True},
+            'nombre_archivo': {'read_only': True},
+            'ruta': {'read_only': True},
+            'tipo_mime': {'read_only': True},
+            'tamano_bytes': {'read_only': True},
             'fecha_subida': {'read_only': True},
         }
 
