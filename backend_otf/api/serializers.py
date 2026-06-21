@@ -259,6 +259,8 @@ class DenunciaDetailSerializer(serializers.ModelSerializer):
 
 class DenunciaWriteSerializer(serializers.ModelSerializer):
     """Denuncia para creacion y actualizacion: solo IDs en relaciones."""
+    latitud = serializers.DecimalField(max_digits=20, decimal_places=15, required=False, allow_null=True)
+    longitud = serializers.DecimalField(max_digits=20, decimal_places=15, required=False, allow_null=True)
 
     class Meta:
         model = Denuncia
@@ -278,6 +280,13 @@ class DenunciaWriteSerializer(serializers.ModelSerializer):
             'id_usuario': {'read_only': True},
             'estado_actual': {'read_only': True},
         }
+
+    def validate(self, attrs):
+        if 'latitud' in attrs and attrs['latitud'] is not None:
+            attrs['latitud'] = round(attrs['latitud'], 6)
+        if 'longitud' in attrs and attrs['longitud'] is not None:
+            attrs['longitud'] = round(attrs['longitud'], 6)
+        return attrs
 
 
 class EstadoDenunciaSerializer(serializers.ModelSerializer):
