@@ -3,13 +3,16 @@ from rest_framework import serializers
 from .models import (
     Administrador,
     Archivo,
+    AsistenciaEvento,
     AuditCambio,
+    AvisoServicio,
     CarpetaArchivo,
     Categoria,
     Denuncia,
     DenunciaTag,
     Estado,
     EstadoDenuncia,
+    EventoComunidad,
     InfoUsuario,
     LogAcceso,
     Notificacion,
@@ -20,6 +23,8 @@ from .models import (
     Usuario,
     UsuarioRol,
     Voto,
+    Equipo,
+    MiembroEquipo,
 )
 
 
@@ -35,10 +40,12 @@ class UserResponseSerializer(serializers.ModelSerializer):
     phone = serializers.SerializerMethodField()
     dni = serializers.SerializerMethodField()
     image = serializers.SerializerMethodField()
+    legajo = serializers.SerializerMethodField()
+    area = serializers.SerializerMethodField()
 
     class Meta:
         model = Usuario
-        fields = ['id', 'name', 'lastname', 'phone', 'dni', 'image']
+        fields = ['id', 'name', 'lastname', 'phone', 'dni', 'image', 'legajo', 'area']
 
     def get_phone(self, obj):
         try:
@@ -59,6 +66,18 @@ class UserResponseSerializer(serializers.ModelSerializer):
                 return request.build_absolute_uri(obj.imagen.url)
             return obj.imagen.url
         return None
+
+    def get_legajo(self, obj):
+        try:
+            return obj.administrador.legajo
+        except Exception:
+            return None
+
+    def get_area(self, obj):
+        try:
+            return obj.administrador.rol_admin
+        except Exception:
+            return None
 
 
 class LoginSerializer(serializers.Serializer):
@@ -437,3 +456,107 @@ class PreferenciaUsuarioSerializer(serializers.ModelSerializer):
     class Meta:
         model = PreferenciaUsuario
         fields = ['id_usuario', 'recibir_emails', 'idioma', 'zona_horaria']
+
+
+class AvisoServicioSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AvisoServicio
+        fields = '__all__'
+
+
+class EventoComunidadSerializer(serializers.ModelSerializer):
+    asistentes_count = serializers.IntegerField(read_only=True)
+    is_attending = serializers.SerializerMethodField()
+    imagen = serializers.ImageField(required=False, allow_null=True)
+
+    class Meta:
+        model = EventoComunidad
+        fields = [
+            'id_evento',
+            'titulo',
+            'descripcion',
+            'ubicacion',
+            'fecha_evento',
+            'imagen',
+            'asistentes_count',
+            'is_attending',
+            'fecha_creacion',
+        ]
+        extra_kwargs = {
+            'fecha_creacion': {'read_only': True},
+        }
+
+    def get_is_attending(self, obj):
+        request = self.context.get('request')
+        if request and request.user and request.user.is_authenticated:
+            return obj.asistentes.filter(id=request.user.id).exists()
+        return False
+
+
+class AdminDenunciaSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(source='id_denuncia', read_only=True)
+    categoria = serializers.CharField(source='id_categoria.nombre', allow_null=True, required=False)
+    foto_url = serializers.SerializerMethodField()
+    estado = serializers.CharField(source='estado_actual.nombre_estado', allow_null=True, required=False)
+    master_case_id = serializers.PrimaryKeyRelatedField(source='master_case', read_only=True)
+    creador_dni = serializers.SerializerMethodField()
+    nombre_equipo = serializers.CharField(source='equipo_asignado.nombre', read_only=True, allow_null=True)
+
+    class Meta:
+        model = Denuncia
+        fields = [
+            'id',
+            'categoria',
+            'descripcion',
+            'foto_url',
+            'direccion',
+            'latitud',
+            'longitud',
+            'fecha_creacion',
+            'estado',
+            'equipo_asignado',
+            'nombre_equipo',
+            'master_case_id',
+            'creador_dni',
+        ]
+
+    def get_foto_url(self, obj):
+        if obj.imagen:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.imagen.url)
+            return obj.imagen.url
+        return None
+
+    def get_creador_dni(self, obj):
+        try:
+            return obj.id_usuario.infousuario.dni
+        except Exception:
+            return ''
+
+
+class MiembroEquipoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MiembroEquipo
+        fields = ['id_miembro', 'dni', 'cargo']
+
+
+class EquipoSerializer(serializers.ModelSerializer):
+    miembros = MiembroEquipoSerializer(many=True, required=False)
+    categoria_nombre = serializers.CharField(source='id_categoria.nombre', read_only=True)
+
+    class Meta:
+        model = Equipo
+        fields = ['id_equipo', 'nombre', 'id_categoria', 'categoria_nombre', 'miembros', 'fecha_creacion']
+        extra_kwargs = {
+            'nombre': {'read_only': True},
+        }
+
+    def create(self, validated_data):
+        miembros_data = validated_data.pop('miembros', [])
+        from django.db import transaction
+        with transaction.atomic():
+            equipo = Equipo.objects.create(**validated_data)
+            for miembro_data in miembros_data:
+                MiembroEquipo.objects.create(id_equipo=equipo, **miembro_data)
+        return equipo

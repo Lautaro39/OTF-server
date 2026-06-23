@@ -143,6 +143,22 @@ class Denuncia(models.Model):
         db_column='EstadoActualId',
         related_name='denuncias_estado_actual',
     )
+    equipo_asignado = models.ForeignKey(
+        'Equipo',
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        db_column='IdEquipo',
+        related_name='denuncias',
+    )
+    master_case = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        db_column='MasterCaseId',
+        related_name='duplicados',
+    )
 
     class Meta:
         db_table = 'Denuncias'
@@ -370,3 +386,106 @@ class PreferenciaUsuario(models.Model):
 
     def __str__(self):
         return f'Prefs de {self.id_usuario}'
+
+
+class AvisoServicio(models.Model):
+    """Aviso/Alerta sobre cortes o interrupciones en servicios públicos."""
+    id_aviso = models.AutoField(primary_key=True, db_column='IdAviso')
+    titulo = models.CharField(max_length=200, db_column='Titulo')
+    descripcion = models.TextField(db_column='Descripcion')
+    categoria = models.CharField(max_length=100, db_column='Categoria')
+    fecha_inicio = models.DateTimeField(db_column='FechaInicio')
+    fecha_fin = models.DateTimeField(db_column='FechaFin', null=True, blank=True)
+    activo = models.BooleanField(default=True, db_column='Activo')
+    fecha_creacion = models.DateTimeField(auto_now_add=True, db_column='FechaCreacion')
+
+    class Meta:
+        db_table = 'AvisosServicio'
+        verbose_name = 'aviso de servicio'
+        verbose_name_plural = 'avisos de servicio'
+        ordering = ['-fecha_creacion']
+
+    def __str__(self):
+        return f"[{self.categoria}] {self.titulo}"
+
+
+class EventoComunidad(models.Model):
+    """Evento social o comunitario programado."""
+    id_evento = models.AutoField(primary_key=True, db_column='IdEvento')
+    titulo = models.CharField(max_length=200, db_column='Titulo')
+    descripcion = models.TextField(db_column='Descripcion', blank=True, null=True)
+    ubicacion = models.CharField(max_length=255, db_column='Ubicacion')
+    fecha_evento = models.DateTimeField(db_column='FechaEvento')
+    imagen = models.ImageField(upload_to='eventos/%Y/%m/', blank=True, null=True, db_column='Imagen')
+    asistentes = models.ManyToManyField(
+        Usuario,
+        through='AsistenciaEvento',
+        related_name='eventos_asistidos',
+        blank=True
+    )
+    fecha_creacion = models.DateTimeField(auto_now_add=True, db_column='FechaCreacion')
+
+    class Meta:
+        db_table = 'EventosComunidad'
+        verbose_name = 'evento de comunidad'
+        verbose_name_plural = 'eventos de la comunidad'
+        ordering = ['fecha_evento']
+
+    def __str__(self):
+        return self.titulo
+
+
+class AsistenciaEvento(models.Model):
+    """Registro de asistencia a un evento comunitario por parte de un usuario."""
+    id_asistencia = models.AutoField(primary_key=True, db_column='IdAsistencia')
+    id_usuario = models.ForeignKey(Usuario, on_delete=models.CASCADE, db_column='IdUsuario')
+    id_evento = models.ForeignKey(EventoComunidad, on_delete=models.CASCADE, db_column='IdEvento')
+    fecha_registro = models.DateTimeField(auto_now_add=True, db_column='FechaRegistro')
+
+    class Meta:
+        db_table = 'AsistenciaEventos'
+        verbose_name = 'asistencia a evento'
+        verbose_name_plural = 'asistencias a eventos'
+        constraints = [
+            models.UniqueConstraint(fields=['id_usuario', 'id_evento'], name='uq_asistencia_usuario_evento'),
+        ]
+
+    def __str__(self):
+        return f"{self.id_usuario} asiste a {self.id_evento}"
+
+
+class Equipo(models.Model):
+    """Equipo de trabajo encargado de resolver incidencias."""
+    id_equipo = models.AutoField(primary_key=True, db_column='IdEquipo')
+    nombre = models.CharField(max_length=200, db_column='Nombre')
+    id_categoria = models.ForeignKey(
+        Categoria, on_delete=models.CASCADE, db_column='IdCategoria'
+    )
+    fecha_creacion = models.DateTimeField(auto_now_add=True, db_column='FechaCreacion')
+
+    class Meta:
+        db_table = 'Equipos'
+        verbose_name = 'equipo'
+        verbose_name_plural = 'equipos'
+        ordering = ['nombre']
+
+    def __str__(self):
+        return self.nombre
+
+
+class MiembroEquipo(models.Model):
+    """Integrante de un equipo de trabajo."""
+    id_miembro = models.AutoField(primary_key=True, db_column='IdMiembro')
+    id_equipo = models.ForeignKey(
+        Equipo, on_delete=models.CASCADE, db_column='IdEquipo', related_name='miembros'
+    )
+    dni = models.CharField(max_length=50, db_column='DNI')
+    cargo = models.CharField(max_length=150, db_column='Cargo')
+
+    class Meta:
+        db_table = 'MiembrosEquipo'
+        verbose_name = 'miembro de equipo'
+        verbose_name_plural = 'miembros de equipo'
+
+    def __str__(self):
+        return f"{self.dni} - {self.cargo}"

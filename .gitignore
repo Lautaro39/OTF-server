@@ -151,7 +151,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
-=======
+
 # Exceptions to above rules.
 !**/ios/**/default.mode1v3
 !**/ios/**/default.mode2v3
@@ -159,8 +159,3 @@ __marimo__/
 !**/ios/**/default.perspectivev3
 !/packages/flutter_tools/test/data/dart_dependencies_test/**/.packages
 !/dev/ci/**/Gemfile.lock
-
-
-
-
->>>>>>> 97f3956 (Backend inicial, me voy a mi pueblo y necesito acceder todo esto desde mi laptop)

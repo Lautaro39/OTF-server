@@ -1,5 +1,6 @@
 from django.contrib.auth import authenticate
 from django.db import IntegrityError, transaction
+from django.db.models import Count
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -9,20 +10,29 @@ from rest_framework.authtoken.models import Token
 
 from .models import (
     Archivo,
+    AsistenciaEvento,
+    AvisoServicio,
     CarpetaArchivo,
     Categoria,
     Denuncia,
     Estado,
+    EventoComunidad,
     InfoUsuario,
     Voto,
+    Equipo,
+    MiembroEquipo,
 )
 from .serializers import (
+    AdminDenunciaSerializer,
+    EquipoSerializer,
     ArchivoSerializer,
+    AvisoServicioSerializer,
     CategoriaSerializer,
     DenunciaDetailSerializer,
     DenunciaListSerializer,
     DenunciaWriteSerializer,
     EstadoSerializer,
+    EventoComunidadSerializer,
     LoginSerializer,
     ProfileUpdateSerializer,
     RegisterSerializer,
@@ -216,3 +226,155 @@ class EstadoViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Estado.objects.all()
     serializer_class = EstadoSerializer
     permission_classes = [AllowAny]
+
+
+class AvisoServicioViewSet(viewsets.ModelViewSet):
+    serializer_class = AvisoServicioSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        if self.request.user and self.request.user.is_staff:
+            return AvisoServicio.objects.all()
+        return AvisoServicio.objects.filter(activo=True)
+
+
+class EventoComunidadViewSet(viewsets.ModelViewSet):
+    serializer_class = EventoComunidadSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return EventoComunidad.objects.annotate(
+            asistentes_count=Count('asistentes')
+        ).order_by('fecha_evento')
+
+    @action(detail=True, methods=['post'], url_path='asistir')
+    def asistir(self, request, pk=None):
+        evento = self.get_object()
+        user = request.user
+        
+        # Toggle attendance
+        asistencia, created = AsistenciaEvento.objects.get_or_create(
+            id_usuario=user, id_evento=evento
+        )
+        if not created:
+            # Already exists, so unregister (toggle off)
+            asistencia.delete()
+            is_attending = False
+        else:
+            is_attending = True
+            
+        # Get updated count of attendees
+        asistentes_count = evento.asistentes.count()
+        return Response({
+            'is_attending': is_attending,
+            'asistentes_count': asistentes_count
+        })
+
+
+class AdminReportViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    serializer_class = AdminDenunciaSerializer
+
+    def get_queryset(self):
+        if not self.request.user.is_staff:
+            return Denuncia.objects.none()
+        
+        ordering = self.request.query_params.get('ordering', 'latest')
+        qs = Denuncia.objects.select_related(
+            'id_usuario__infousuario',
+            'id_categoria',
+            'estado_actual',
+            'master_case'
+        )
+        
+        if ordering == 'oldest':
+            qs = qs.order_by('fecha_creacion')
+        else: # latest
+            qs = qs.order_by('-fecha_creacion')
+            
+        return qs
+
+    @action(detail=True, methods=['patch'], url_path='assign')
+    def assign(self, request, pk=None):
+        denuncia = self.get_object()
+        team_id = request.data.get('equipo_asignado')
+        
+        estado_proceso, _ = Estado.objects.get_or_create(nombre_estado='En Proceso')
+        denuncia.estado_actual = estado_proceso
+        denuncia.equipo_asignado_id = team_id
+        denuncia.save()
+        
+        serializer = self.get_serializer(denuncia)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['patch'], url_path='resolve')
+    def resolve(self, request, pk=None):
+        denuncia = self.get_object()
+        
+        estado_completa, _ = Estado.objects.get_or_create(nombre_estado='Completa')
+        denuncia.estado_actual = estado_completa
+        denuncia.save()
+        
+        serializer = self.get_serializer(denuncia)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['patch'], url_path='discard')
+    def discard(self, request, pk=None):
+        denuncia = self.get_object()
+        
+        estado_descartada, _ = Estado.objects.get_or_create(nombre_estado='Descartada')
+        denuncia.estado_actual = estado_descartada
+        denuncia.save()
+        
+        serializer = self.get_serializer(denuncia)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['post'], url_path='merge')
+    def merge_reports(self, request):
+        ids = request.data.get('ids', [])
+        if not ids:
+            return Response({'error': 'No ids provided'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        # Convert IDs to integer (since Django uses integer primary keys)
+        try:
+            int_ids = [int(x) for x in ids]
+        except ValueError:
+            return Response({'error': 'Invalid IDs format'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        matching_reports = list(Denuncia.objects.filter(id_denuncia__in=int_ids).order_by('fecha_creacion'))
+        if not matching_reports:
+            return Response({'error': 'No matching reports found'}, status=status.HTTP_404_NOT_FOUND)
+            
+        # Oldest report is the master
+        master = matching_reports[0]
+        
+        # Update all other reports to have master_case set to master
+        for r in matching_reports[1:]:
+            r.master_case = master
+            r.save()
+            
+        return Response({'success': True, 'master_id': master.id_denuncia})
+
+
+class EquipoViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    serializer_class = EquipoSerializer
+
+    def get_queryset(self):
+        if not self.request.user.is_staff:
+            return Equipo.objects.none()
+            
+        qs = Equipo.objects.all().prefetch_related('miembros').select_related('id_categoria')
+        
+        # Filter by category name if provided (e.g. GET /api/equipos/?categoria=Alumbrado)
+        categoria_name = self.request.query_params.get('categoria')
+        if categoria_name:
+            qs = qs.filter(id_categoria__nombre=categoria_name)
+            
+        return qs
+
+    def perform_create(self, serializer):
+        categoria = serializer.validated_data['id_categoria']
+        num_equipos = Equipo.objects.filter(id_categoria=categoria).count() + 1
+        nombre = f"Grupo {categoria.nombre} {num_equipos}"
+        serializer.save(nombre=nombre)

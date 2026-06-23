@@ -3,3 +3,4 @@ djangorestframework
 environs
 psycopg2-binary
 Pillow
+django-cors-headers
