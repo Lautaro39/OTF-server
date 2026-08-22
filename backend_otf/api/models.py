@@ -31,6 +31,7 @@ class InfoUsuario(models.Model):
     domicilio = models.CharField(max_length=255, blank=True, null=True, db_column='Domicilio')
     dni = models.CharField(max_length=50, unique=True, blank=True, null=True, db_column='DNI')
     telefono = models.CharField(max_length=50, blank=True, null=True, db_column='Telefono')
+    token_fcm = models.CharField(max_length=500, blank=True, null=True, db_column = 'Token_FCM')
 
     class Meta:
         db_table = 'InfoUsuarios'

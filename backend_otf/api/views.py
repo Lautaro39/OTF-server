@@ -7,6 +7,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.authtoken.models import Token
+from .utils_firebase import notify_user
 
 from .models import (
     Archivo,
@@ -54,17 +55,29 @@ class LoginView(APIView):
         serializer.is_valid(raise_exception=True)
         user = authenticate(
             request,
-            username=serializer.validated_data['username'],
-            password=serializer.validated_data['password'],
+            username=serializer.validated_data["username"],
+            password=serializer.validated_data["password"],
         )
         if not user:
-            return Response({'error': 'Credenciales invalidas.'}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response(
+                {"error": "Credenciales invalidas."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        # Actualiza el token fcm al iniciar sesion
+        token_fcm = request.data.get("token_fcm")
+        if token_fcm:
+            info, _ = InfoUsuario.objects.get_or_create(id_usuario=user)
+            info.token_fcm = token_fcm
+            info.save()
 
         token, _ = Token.objects.get_or_create(user=user)
-        return Response({
-            'user': UserResponseSerializer(user, context={'request': request}).data,
-            'token': token.key,
-        })
+        return Response(
+            {
+                "user": UserResponseSerializer(user, context={"request": request}).data,
+                "token": token.key,
+            }
+        )
 
 
 class RegisterView(APIView):
@@ -77,10 +90,13 @@ class RegisterView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         user = serializer.save()
         token, _ = Token.objects.get_or_create(user=user)
-        return Response({
-            'user': UserResponseSerializer(user, context={'request': request}).data,
-            'token': token.key,
-        }, status=status.HTTP_201_CREATED)
+        return Response(
+            {
+                "user": UserResponseSerializer(user, context={"request": request}).data,
+                "token": token.key,
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class ProfileUpdateView(APIView):
@@ -88,12 +104,14 @@ class ProfileUpdateView(APIView):
 
     def put(self, request, pk):
         if str(request.user.id) != str(pk):
-            return Response({'error': 'No autorizado.'}, status=status.HTTP_403_FORBIDDEN)
+            return Response(
+                {"error": "No autorizado."}, status=status.HTTP_403_FORBIDDEN
+            )
 
         serializer = ProfileUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.update(request.user, serializer.validated_data)
-        return Response(UserResponseSerializer(user, context={'request': request}).data)
+        return Response(UserResponseSerializer(user, context={"request": request}).data)
 
 
 # =========================================================================
@@ -106,21 +124,21 @@ class DenunciaViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = Denuncia.objects.select_related(
-            'id_usuario', 'id_categoria', 'estado_actual'
+            "id_usuario", "id_categoria", "estado_actual"
         )
-        if self.action in ['update', 'partial_update', 'destroy']:
+        if self.action in ["update", "partial_update", "destroy"]:
             return qs.filter(id_usuario=self.request.user)
         return qs.filter(id_usuario=self.request.user)
 
     def get_serializer_class(self):
-        if self.action in ['create', 'update', 'partial_update']:
+        if self.action in ["create", "update", "partial_update"]:
             return DenunciaWriteSerializer
-        if self.action == 'list':
+        if self.action == "list":
             return DenunciaListSerializer
         return DenunciaDetailSerializer
 
     def perform_create(self, serializer):
-        estado_pendiente = Estado.objects.filter(nombre_estado='Pendiente').first()
+        estado_pendiente = Estado.objects.filter(nombre_estado="Pendiente").first()
         serializer.save(id_usuario=self.request.user, estado_actual=estado_pendiente)
 
     def create(self, request, *args, **kwargs):
@@ -131,9 +149,11 @@ class DenunciaViewSet(viewsets.ModelViewSet):
         self.perform_create(serializer)
         headers = self.get_success_headers(serializer.data)
         detail_serializer = DenunciaDetailSerializer(
-            serializer.instance, context={'request': request}
+            serializer.instance, context={"request": request}
         )
-        return Response(detail_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+        return Response(
+            detail_serializer.data, status=status.HTTP_201_CREATED, headers=headers
+        )
 
 
 # =========================================================================
@@ -146,8 +166,8 @@ class VotoViewSet(viewsets.ModelViewSet):
     serializer_class = VotoSerializer
 
     def get_queryset(self):
-        qs = Voto.objects.select_related('id_usuario')
-        denuncia_id = self.request.query_params.get('denuncia')
+        qs = Voto.objects.select_related("id_usuario")
+        denuncia_id = self.request.query_params.get("denuncia")
         if denuncia_id:
             qs = qs.filter(id_denuncia_id=denuncia_id)
         return qs
@@ -160,7 +180,7 @@ class VotoViewSet(viewsets.ModelViewSet):
             return super().create(request, *args, **kwargs)
         except IntegrityError:
             return Response(
-                {'error': 'Ya has votado en esta denuncia.'},
+                {"error": "Ya has votado en esta denuncia."},
                 status=status.HTTP_409_CONFLICT,
             )
 
@@ -173,7 +193,7 @@ class VotoViewSet(viewsets.ModelViewSet):
         instance = self.get_object()
         if instance.id_usuario != request.user:
             return Response(
-                {'error': 'No puedes eliminar el voto de otro usuario.'},
+                {"error": "No puedes eliminar el voto de otro usuario."},
                 status=status.HTTP_403_FORBIDDEN,
             )
         return super().destroy(request, *args, **kwargs)
@@ -189,18 +209,18 @@ class ArchivoViewSet(viewsets.ModelViewSet):
     serializer_class = ArchivoSerializer
 
     def get_queryset(self):
-        qs = Archivo.objects.select_related('id_carpeta__id_denuncia')
-        denuncia_id = self.request.query_params.get('denuncia')
+        qs = Archivo.objects.select_related("id_carpeta__id_denuncia")
+        denuncia_id = self.request.query_params.get("denuncia")
         if denuncia_id:
             qs = qs.filter(id_carpeta__id_denuncia_id=denuncia_id)
         return qs
 
     def perform_create(self, serializer):
-        denuncia_id = serializer.validated_data.pop('id_denuncia')
+        denuncia_id = serializer.validated_data.pop("id_denuncia")
         denuncia = Denuncia.objects.get(id_denuncia=denuncia_id)
         carpeta, _ = CarpetaArchivo.objects.get_or_create(
             id_denuncia=denuncia,
-            defaults={'nombre_carpeta': 'Principal'},
+            defaults={"nombre_carpeta": "Principal"},
         )
         serializer.save(id_carpeta=carpeta)
 
@@ -244,14 +264,14 @@ class EventoComunidadViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         return EventoComunidad.objects.annotate(
-            asistentes_count=Count('asistentes')
-        ).order_by('fecha_evento')
+            asistentes_count=Count("asistentes")
+        ).order_by("fecha_evento")
 
-    @action(detail=True, methods=['post'], url_path='asistir')
+    @action(detail=True, methods=["post"], url_path="asistir")
     def asistir(self, request, pk=None):
         evento = self.get_object()
         user = request.user
-        
+
         # Toggle attendance
         asistencia, created = AsistenciaEvento.objects.get_or_create(
             id_usuario=user, id_evento=evento
@@ -265,10 +285,9 @@ class EventoComunidadViewSet(viewsets.ModelViewSet):
             
         # Get updated count of attendees
         asistentes_count = evento.asistentes.count()
-        return Response({
-            'is_attending': is_attending,
-            'asistentes_count': asistentes_count
-        })
+        return Response(
+            {"is_attending": is_attending, "asistentes_count": asistentes_count}
+        )
 
 
 class AdminReportViewSet(viewsets.ModelViewSet):
@@ -278,82 +297,105 @@ class AdminReportViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         if not self.request.user.is_staff:
             return Denuncia.objects.none()
-        
-        ordering = self.request.query_params.get('ordering', 'latest')
+
+        ordering = self.request.query_params.get("ordering", "latest")
         qs = Denuncia.objects.select_related(
-            'id_usuario__infousuario',
-            'id_categoria',
-            'estado_actual',
-            'master_case'
+            "id_usuario__infousuario", "id_categoria", "estado_actual", "master_case"
         )
-        
-        if ordering == 'oldest':
-            qs = qs.order_by('fecha_creacion')
-        else: # latest
-            qs = qs.order_by('-fecha_creacion')
-            
+
+        if ordering == "oldest":
+            qs = qs.order_by("fecha_creacion")
+        else:  # latest
+            qs = qs.order_by("-fecha_creacion")
+
         return qs
 
-    @action(detail=True, methods=['patch'], url_path='assign')
+    @action(detail=True, methods=["patch"], url_path="assign")
     def assign(self, request, pk=None):
         denuncia = self.get_object()
-        team_id = request.data.get('equipo_asignado')
-        
-        estado_proceso, _ = Estado.objects.get_or_create(nombre_estado='En Proceso')
+        team_id = request.data.get("equipo_asignado")
+
+        estado_proceso, _ = Estado.objects.get_or_create(nombre_estado="En Proceso")
         denuncia.estado_actual = estado_proceso
         denuncia.equipo_asignado_id = team_id
         denuncia.save()
-        
+
+        notify_user(
+            denuncia,
+            "Denuncia en proceso",
+            f"Se le asigno un equipo de trabajo a tu denuncia #{denuncia.id_denuncia}!.",
+        )
+
         serializer = self.get_serializer(denuncia)
         return Response(serializer.data)
 
-    @action(detail=True, methods=['patch'], url_path='resolve')
+    @action(detail=True, methods=["patch"], url_path="resolve")
     def resolve(self, request, pk=None):
         denuncia = self.get_object()
-        
-        estado_completa, _ = Estado.objects.get_or_create(nombre_estado='Completa')
+
+        estado_completa, _ = Estado.objects.get_or_create(nombre_estado="Completa")
         denuncia.estado_actual = estado_completa
         denuncia.save()
-        
+
+        notify_user(
+            denuncia,
+            "¡Denuncia resuelta!",
+            f"Tu denuncia #{denuncia.id_denuncia} ha sido marcada como completada.",
+        )
+
         serializer = self.get_serializer(denuncia)
         return Response(serializer.data)
 
-    @action(detail=True, methods=['patch'], url_path='discard')
+    @action(detail=True, methods=["patch"], url_path="discard")
     def discard(self, request, pk=None):
         denuncia = self.get_object()
-        
-        estado_descartada, _ = Estado.objects.get_or_create(nombre_estado='Descartada')
+
+        estado_descartada, _ = Estado.objects.get_or_create(nombre_estado="Descartada")
         denuncia.estado_actual = estado_descartada
         denuncia.save()
-        
+
+        notify_user(
+            denuncia,
+            "Denuncia rechazada",
+            f"Tu denuncia #{denuncia.id_denuncia} ha sido marcada como rechazada. Too bad :()",
+        )
+
         serializer = self.get_serializer(denuncia)
         return Response(serializer.data)
 
-    @action(detail=False, methods=['post'], url_path='merge')
+    @action(detail=False, methods=["post"], url_path="merge")
     def merge_reports(self, request):
-        ids = request.data.get('ids', [])
+        ids = request.data.get("ids", [])
         if not ids:
-            return Response({'error': 'No ids provided'}, status=status.HTTP_400_BAD_REQUEST)
-            
+            return Response(
+                {"error": "No ids provided"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
         # Convert IDs to integer (since Django uses integer primary keys)
         try:
             int_ids = [int(x) for x in ids]
         except ValueError:
-            return Response({'error': 'Invalid IDs format'}, status=status.HTTP_400_BAD_REQUEST)
-            
-        matching_reports = list(Denuncia.objects.filter(id_denuncia__in=int_ids).order_by('fecha_creacion'))
+            return Response(
+                {"error": "Invalid IDs format"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        matching_reports = list(
+            Denuncia.objects.filter(id_denuncia__in=int_ids).order_by("fecha_creacion")
+        )
         if not matching_reports:
-            return Response({'error': 'No matching reports found'}, status=status.HTTP_404_NOT_FOUND)
-            
+            return Response(
+                {"error": "No matching reports found"}, status=status.HTTP_404_NOT_FOUND
+            )
+
         # Oldest report is the master
         master = matching_reports[0]
-        
+
         # Update all other reports to have master_case set to master
         for r in matching_reports[1:]:
             r.master_case = master
             r.save()
-            
-        return Response({'success': True, 'master_id': master.id_denuncia})
+
+        return Response({"success": True, "master_id": master.id_denuncia})
 
 
 class EquipoViewSet(viewsets.ModelViewSet):
@@ -363,18 +405,22 @@ class EquipoViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         if not self.request.user.is_staff:
             return Equipo.objects.none()
-            
-        qs = Equipo.objects.all().prefetch_related('miembros').select_related('id_categoria')
-        
+
+        qs = (
+            Equipo.objects.all()
+            .prefetch_related("miembros")
+            .select_related("id_categoria")
+        )
+
         # Filter by category name if provided (e.g. GET /api/equipos/?categoria=Alumbrado)
-        categoria_name = self.request.query_params.get('categoria')
+        categoria_name = self.request.query_params.get("categoria")
         if categoria_name:
             qs = qs.filter(id_categoria__nombre=categoria_name)
-            
+
         return qs
 
     def perform_create(self, serializer):
-        categoria = serializer.validated_data['id_categoria']
+        categoria = serializer.validated_data["id_categoria"]
         num_equipos = Equipo.objects.filter(id_categoria=categoria).count() + 1
         nombre = f"Grupo {categoria.nombre} {num_equipos}"
         serializer.save(nombre=nombre)

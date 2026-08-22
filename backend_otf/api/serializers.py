@@ -91,6 +91,7 @@ class RegisterSerializer(serializers.Serializer):
     username = serializers.CharField(max_length=150)
     phone = serializers.CharField(max_length=50, allow_blank=True, required=False)
     password = serializers.CharField(min_length=4, style={'input_type': 'password'})
+    token_fcm = serializers.CharField(max_length=500, source='token_fcm')
 
     def validate_username(self, value):
         if Usuario.objects.filter(username=value).exists():
@@ -111,6 +112,7 @@ class RegisterSerializer(serializers.Serializer):
                 id_usuario=user,
                 dni=validated_data['username'],
                 telefono=validated_data.get('phone', ''),
+                token_fcm=validated_data.get('token_fcm', '')
             )
         return user
 
@@ -120,6 +122,7 @@ class ProfileUpdateSerializer(serializers.Serializer):
     lastname = serializers.CharField(max_length=150, source='last_name', required=False)
     phone = serializers.CharField(max_length=50, allow_blank=True, required=False)
     image = serializers.ImageField(required=False)
+    token_fcm = serializers.CharField(required=False)
 
     def update(self, user, validated_data):
         if 'first_name' in validated_data:
@@ -133,9 +136,11 @@ class ProfileUpdateSerializer(serializers.Serializer):
         info, _ = InfoUsuario.objects.get_or_create(id_usuario=user)
         if 'phone' in validated_data:
             info.telefono = validated_data['phone']
-            info.save()
+        if 'token_fcm' in validated_data:
+            info.token_fcm = validated_data['token_fcm']
+        info.save()
 
-        return user
+        return user 
 
 
 # =========================================================================
