@@ -35,4 +35,30 @@ class Command(BaseCommand):
                 self.style.SUCCESS(f'Estado "{nombre}": {"creado" if created else "ya existe"}')
             )
 
+        # 3. Crear usuario administrador de prueba (12345678 / admin123)
+        from api.models import Usuario, InfoUsuario, Administrador
+        from django.contrib.auth.hashers import make_password
+
+        admin_user, created = Usuario.objects.get_or_create(username='12345678')
+        if created:
+            admin_user.first_name = 'Pedro'
+            admin_user.last_name = 'Administrador'
+            admin_user.is_staff = True
+            admin_user.is_superuser = True
+            admin_user.password = make_password('admin123')
+            admin_user.save()
+
+            InfoUsuario.objects.get_or_create(
+                id_usuario=admin_user,
+                defaults={'dni': '12345678', 'telefono': '3871234567'}
+            )
+
+            Administrador.objects.get_or_create(
+                id_usuario=admin_user,
+                defaults={'legajo': 'L-4091', 'rol_admin': 'Servicios Públicos'}
+            )
+            self.stdout.write(self.style.SUCCESS('Admin "12345678": creado con contraseña "admin123"'))
+        else:
+            self.stdout.write(self.style.SUCCESS('Admin "12345678": ya existe'))
+
         self.stdout.write(self.style.SUCCESS('\nSeed completado.'))

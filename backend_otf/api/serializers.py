@@ -91,7 +91,7 @@ class RegisterSerializer(serializers.Serializer):
     username = serializers.CharField(max_length=150)
     phone = serializers.CharField(max_length=50, allow_blank=True, required=False)
     password = serializers.CharField(min_length=4, style={'input_type': 'password'})
-    token_fcm = serializers.CharField(max_length=500, source='token_fcm')
+    token_fcm = serializers.CharField(max_length=500, required=False, allow_blank=True)
 
     def validate_username(self, value):
         if Usuario.objects.filter(username=value).exists():

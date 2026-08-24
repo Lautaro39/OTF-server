@@ -14,7 +14,20 @@ Antes de comenzar, asegúrate de tener instalado en tu sistema:
 
 ---
 
-## Pasos para la Configuración
+## Método Rápido (Recomendado)
+
+Hemos creado un script de automatización (`start.sh`) en la raíz del proyecto `OTF-server` que se encarga de crear el entorno virtual, instalar dependencias, correr las migraciones, sembrar datos de prueba (categorías y estados) e iniciar el servidor.
+
+Para usarlo, simplemente ejecuta en tu terminal:
+```bash
+./start.sh
+```
+
+---
+
+## Pasos Manuales para la Configuración
+
+Si prefieres realizar el proceso de forma manual, sigue estos pasos:
 
 ### 1. Clonar el repositorio y posicionarse en la carpeta raíz
 Abre una terminal en la raíz del proyecto `OTF-server`:
@@ -22,60 +35,49 @@ Abre una terminal en la raíz del proyecto `OTF-server`:
 cd OTF-server
 ```
 
-### 2. Crear y activar un Entorno Virtual (Virtualenv)
-Es recomendable aislar las dependencias del proyecto.
+### 2. Configurar Firebase Admin SDK (Para Notificaciones)
+Para que el sistema de notificaciones push funcione:
+1. Genera una nueva clave privada desde la consola de Firebase.
+2. Descarga el archivo JSON y muévelo al directorio `backend_otf/` con el nombre de **`serviceAccountKey.json`**.
+*Nota: Este archivo también está ignorado en Git por motivos de seguridad.*
 
+### 3. Crear y activar un Entorno Virtual (Virtualenv)
+* **En macOS/Linux:**
+  ```bash
+  python3 -m venv venv
+  source venv/bin/activate
+  ```
 * **En Windows (PowerShell):**
   ```powershell
   python -m venv venv
   .\venv\Scripts\Activate.ps1
   ```
 
-* **En macOS/Linux:**
-  ```bash
-  python3 -m venv venv
-  source venv/bin/activate
-  ```
-
-### 3. Instalar las dependencias
-Con el entorno virtual activo, instala los paquetes necesarios detallados en el archivo `requirements.txt`:
+### 4. Instalar las dependencias
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. Configurar la Base de Datos PostgreSQL
-Debes tener una instancia de PostgreSQL ejecutándose y crear una base de datos con las credenciales indicadas en el archivo de entorno. 
-
-Por defecto, el archivo `backend_otf/.env` tiene la siguiente configuración:
-* **Base de Datos:** `backend_otf`
-* **Usuario:** `backend_otf`
-* **Contraseña:** `backend_otf`
-* **Host:** `localhost`
-* **Puerto:** `5432`
-
-Puedes crear la base de datos y el usuario ejecutando los siguientes comandos en tu terminal interactiva de PostgreSQL (`psql` o mediante pgAdmin):
+### 5. Configurar la Base de Datos PostgreSQL
+Debes tener PostgreSQL activo y crear la base de datos:
 ```sql
 CREATE DATABASE backend_otf;
 CREATE USER backend_otf WITH PASSWORD 'backend_otf';
 GRANT ALL PRIVILEGES ON DATABASE backend_otf TO backend_otf;
 ```
 
-### 5. Navegar a la carpeta del backend
-Para ejecutar comandos de Django, muévete al directorio `backend_otf` (donde está el archivo `manage.py`):
+### 6. Ejecutar Migraciones y Seeds
+Múevete al directorio `backend_otf` y ejecuta:
 ```bash
 cd backend_otf
-```
-
-### 6. Ejecutar las Migraciones
-Crea las tablas en la base de datos a partir de los modelos de Django:
-```bash
 python manage.py migrate
+python manage.py seed
+python seed_comunidad.py
 ```
 
 ### 7. Iniciar el Servidor de Desarrollo
-Una vez configurado todo, inicia el servidor local de Django:
 ```bash
-python manage.py runserver
+python manage.py runserver 0.0.0.0:8000
 ```
+El servidor estará corriendo en `http://localhost:8000/`.
 
-El servidor estará corriendo en `http://127.0.0.1:8000/`.
