@@ -74,7 +74,12 @@ DATABASES = {
         'USER': env.str('DB_USER', 'backend_otf'),
         'PASSWORD': env.str('DB_PASSWORD', 'backend_otf'),
         'HOST': env.str('DB_HOST', 'localhost'),
-        'PORT': env.str('DB_PORT', '5432'),
+        'PORT': env.str('DB_PORT', '5432'), 
+        'OPTIONS': {
+            'sslmode': env.str('DB_SSLMODE', 'require'),
+        },
+        'DISABLE_SERVER_SIDE_CURSORS': env.bool('DB_DISABLE_CURSORS', False),
+        'CONN_HEALTH_CHECKS': True,    
     }
 }
 

@@ -162,3 +162,6 @@ __marimo__/
 
 # Firebase key
 serviceAccountKey.json
+
+# Archivos multimedias de las denuncias
+media
